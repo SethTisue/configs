@@ -19,9 +19,12 @@ package com.github.kxbmap.configs.instance
 import com.github.kxbmap.configs.simple._
 import com.github.kxbmap.configs.util._
 import com.github.kxbmap.configs.{ConfigKey, Configs}
+import com.typesafe.config.ConfigFactory
 import java.{util => ju}
-import scala.collection.immutable.TreeMap
+import scala.collection.JavaConverters._
+import scala.collection.immutable.{ListMap, TreeMap}
 import scala.collection.mutable
+import scalaprops.Property.forAll
 import scalaprops.{Gen, Properties, Scalaprops}
 import scalaz.std.list._
 import scalaz.std.stream._
@@ -48,7 +51,17 @@ object CollectionConfigsTest extends Scalaprops {
 
   val javaMap = {
     implicit val c = configs.fooConfigs
-    check[ju.Map[String, Foo]]("string map").product(check[ju.Map[Symbol, Foo]]("symbol map"))
+    val iterOrder = forAll { (xs: List[(String, Foo)]) =>
+      val config = xs.foldLeft(ConfigFactory.empty()) {
+        case (conf, (k, v)) => conf.withValue(q(k), v.toConfigValue)
+      }
+      Configs[ju.Map[String, Foo]].extract(config).asScala.keys.toList == config.root().asScala.keys.toList
+    }
+    Properties.list(
+      check[ju.Map[String, Foo]].mapId("string map " + _),
+      check[ju.Map[Symbol, Foo]].mapId("symbol map " + _),
+      iterOrder.toProperties("preserves iteration order")
+    )
   }
 
   val fromJList = {
@@ -65,8 +78,7 @@ object CollectionConfigsTest extends Scalaprops {
   val fromJMap = {
     val string = {
       implicit val c = configs.fooJMapConfigs[String]
-      Properties.either(
-        "string map",
+      Properties.list(
         check[Map[String, Foo]].mapId("map " + _),
         check[TreeMap[String, Foo]].mapId("tree map " + _),
         check[mutable.Map[String, Foo]].mapId("mutable map " + _)
@@ -75,14 +87,30 @@ object CollectionConfigsTest extends Scalaprops {
     val symbol = {
       implicit val c = configs.fooJMapConfigs[Symbol]
       implicit val o = Order[Symbol].toScalaOrdering
-      Properties.either(
-        "symbol map",
+      Properties.list(
         check[Map[Symbol, Foo]].mapId("map " + _),
         check[TreeMap[Symbol, Foo]].mapId("tree map " + _),
         check[mutable.Map[Symbol, Foo]].mapId("mutable map " + _)
       )
     }
-    string.product(symbol)
+    val iterOrder = {
+      implicit val c = configs.fooJMapConfigs[String]
+      def prop[A <: collection.Map[String, _] : Configs] = forAll { (xs: List[(String, Foo)]) =>
+        val config = xs.foldLeft(ConfigFactory.empty()) {
+          case (conf, (k, v)) => conf.withValue(q(k), v.toConfigValue)
+        }
+        Configs[A].extract(config).keys.toList == config.root().asScala.keys.toList
+      }
+      Properties.properties("preserve iteration order")(
+        "list map" -> prop[ListMap[String, Foo]],
+        "mutable map" -> prop[mutable.Map[String, Foo]]
+      )
+    }
+    Properties.list(
+      string.mapId("string " + _),
+      symbol.mapId("symbol " + _),
+      iterOrder
+    )
   }
 
 

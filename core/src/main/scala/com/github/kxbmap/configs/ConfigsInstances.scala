@@ -26,6 +26,7 @@ import java.{lang => jl, math => jm, time => jt, util => ju}
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
 import scala.collection.generic.CanBuildFrom
+import scala.collection.mutable
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.{ClassTag, classTag}
 import scala.util.Try
@@ -49,8 +50,14 @@ private[configs] abstract class DefaultConfigsInstances {
 
   implicit def javaMapConfigs[A: ConfigKey, B: Configs]: Configs[ju.Map[A, B]] =
     Configs.onPath { c =>
-      c.root().keysIterator.map(k => ConfigKey[A].from(k) -> Configs[B].get(c, ConfigUtil.quoteString(k))).toMap.asJava
+      iterOrderMap(c.root().keysIterator)(ConfigKey[A].from, k => Configs[B].get(c, ConfigUtil.quoteString(k)))
     }
+
+  private[this] def iterOrderMap[E, A, B](it: Iterator[E])(key: E => A, value: E => B): ju.Map[A, B] = {
+    val m = new ju.LinkedHashMap[A, B]()
+    it.foreach(e => m.put(key(e), value(e)))
+    m
+  }
 
 
   implicit def fromJListConfigs[F[_], A](implicit C: Configs[ju.List[A]], cbf: CanBuildFrom[Nothing, A, F[A]]): Configs[F[A]] =
@@ -58,6 +65,9 @@ private[configs] abstract class DefaultConfigsInstances {
 
   implicit def fromJMapConfigs[M[_, _], A, B](implicit C: Configs[ju.Map[A, B]], cbf: CanBuildFrom[Nothing, (A, B), M[A, B]]): Configs[M[A, B]] =
     C.get(_, _).to[({type F[_] = M[A, B]})#F]
+
+  implicit def mutableMapConfigs[A, B](implicit C: Configs[ju.Map[A, B]]): Configs[mutable.Map[A, B]] =
+    C.get(_, _).asScala
 
 
   implicit def optionConfigs[A: Configs]: Configs[Option[A]] =
@@ -282,7 +292,7 @@ private[configs] abstract class DefaultConfigsInstances {
     _.getObject(_)
 
   implicit def configValueJMapKeyConfigs[A: ConfigKey]: Configs[ju.Map[A, ConfigValue]] =
-    _.getObject(_).map(t => ConfigKey[A].from(t._1) -> t._2).asJava
+    _.getObject(_) |> (_.iterator) |> (iterOrderMap(_)(_._1 |> ConfigKey[A].from, _._2))
 
 
   implicit lazy val configListConfigs: Configs[ConfigList] =
