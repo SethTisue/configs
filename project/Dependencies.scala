@@ -21,7 +21,7 @@ object Dependencies extends AutoPlugin {
     scalapropsVersion := "0.3.2"
   )
 
-  lazy val scalaJava8Compat = "org.scala-lang.modules" %% "scala-java8-compat" % "0.8.0-RC1"
+  lazy val scalaJava8Compat = "org.scala-lang.modules" %% "scala-java8-compat" % "0.8.0-RC7"
 
   lazy val core =
     libraryDependencies ++= Seq(
